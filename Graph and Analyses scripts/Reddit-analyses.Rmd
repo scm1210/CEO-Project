@@ -1,0 +1,538 @@
+---
+title: "Reddit Pandemic Analyses"
+author: "Steven Mesquiti"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    highlight: tango
+    theme: united
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+---
+```{r setup, include=FALSE, message=FALSE}
+# set chunk options for the document
+# include=FALSE means that this chunk will not show up in the report
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = F #let's us save old models. only wanna do this when models are finalized
+                      , dpi = 150, fig.path = "Reddit_figs/") 
+# echo = TRUE means that the source code will be displayed
+# message = FALSE suppresses messages
+# warning = FALSE suppresses warnings
+# cache = FALSE recompiles from scratch each time you knit 
+# dpi = 150 sets the figure resolution
+# fig.path specifies a directory where figures will be output
+
+options(scipen = 999) #turn off scientific notation
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+set.seed(65) #set seed for random number generation
+```
+
+
+# Prep data {.tabset}
+
+## Load necessary packages and set Working Directory
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse,zoo,lubridate,plotrix,ggpubr, caret, broom, kableExtra, reactable, effsize, install = T)
+setwd("/Users/stevenmesquiti/Desktop/CEO Project/Manuscript analyses") 
+```
+
+
+## Define aesthetics
+```{r}
+colors =  c("CEO" = "dodgerblue3","Reddit" = "red")
+palette_map = c("#3B9AB2", "#EBCC2A", "#F21A00")
+palette_condition = c("#ee9b00", "#bb3e03", "#005f73")
+
+plot_aes = theme_classic() +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 10),)+
+  theme(text = element_text(size = 16, family = "Futura Medium")) + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))+
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 20)) +
+  theme(axis.text=element_text(size = 14),
+        axis.title=element_text(size = 20,face="bold"))
+```
+
+## Write our Table Funcions
+```{r}
+baseline_ttest <- function(ttest_list) {
+  # Extract relevant information from each test and store in a data frame
+   ttest_df <- data.frame(
+    Group1 = seq(0, 0, 1),
+    Group2 = seq(1, 24, 1),
+    t = sapply(ttest_list, function(x) paste0("t(", round(x$parameter, 3), ") = ", round(x$statistic, 3))),
+    p_value = sapply(ttest_list, function(x) x$p.value)
+  )
+  
+  # Format p-values as scientific notation
+  ttest_df$p_value <- format(ttest_df$p_value, scientific = T)
+  
+  # Rename columns
+  colnames(ttest_df) <- c("t", "t + 1 ", "t-statistic", "p-value")
+  
+  # Create table using kableExtra
+  kable(ttest_df, caption = "Summary of Welch's t-Tests", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+post_pandemic_summary <- function(ttest_list) {
+  # Extract relevant information from each test and store in a data frame
+  ttest_df <- data.frame(
+    Group1 = seq(12,23,1),
+    Group2 = seq(13,24,1),
+    t = sapply(ttest_list, function(x) paste0("t(", round(x$parameter, 3), ") = ", round(x$statistic, 3))),
+    p_value = sapply(ttest_list, function(x) x$p.value)
+  )
+  
+  # Format p-values as scientific notation
+  ttest_df$p_value <- format(ttest_df$p_value, scientific = T)
+  
+  # Rename columns
+  colnames(ttest_df) <- c("t", "t + 1 ", "t-value", "p-value")
+  
+  # Create table using kableExtra
+  kable(ttest_df, caption = "Summary of Welch's t-Tests", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+
+
+baseline_cohen_d <- function(cohen_d_list) {
+  # Extract relevant information from each test and store in a data frame
+  cohen_d_df <- data.frame(
+    Group1 = seq(0,0,1),
+    Group2 = seq(1,24,1),
+    Cohen_d = sapply(cohen_d_list, function(x) x$estimate)
+  )
+  
+  # Rename columns
+  colnames(cohen_d_df) <- c("t", "t + 1", "Cohen's d")
+  
+  # Create table using kableExtra
+  kable(cohen_d_df, caption = "Summary of Cohen's D", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+post_cohen_d <- function(cohen_d_list) {
+  # Extract relevant information from each test and store in a data frame
+  cohen_d_df <- data.frame(
+    Group1 = seq(12,23,1),
+    Group2 = seq(13,24,1),
+    Cohen_d = sapply(cohen_d_list, function(x) x$estimate)
+  )
+  
+  # Rename columns
+  colnames(cohen_d_df) <- c("t", "t+1", "Cohen's d")
+  
+  # Create table using kableExtra
+  kable(cohen_d_df, caption = "Summary of Cohen's D", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+baseline_mean_diff <- function(mean_diff_list) {
+  # Extract relevant information from each mean difference calculation and store in a data frame
+  mean_diff_df <- data.frame(
+    Group1 = seq(0,0,1),
+    Group2 = seq(1,24,1),
+    mean_diff = mean_diff_list
+  )
+  
+  # Rename columns
+  colnames(mean_diff_df) <- c("t", "t+1", "Mean Difference")
+  
+  # Create table using kableExtra
+  kable(mean_diff_df, caption = "Summary of Mean Differences", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+
+post_mean_diff <- function(mean_diff_list) {
+  # Extract relevant information from each mean difference calculation and store in a data frame
+  mean_diff_df <- data.frame(
+    Group1 = seq(12,23,1),
+    Group2 = seq(13,24,1),
+    mean_diff = mean_diff_list
+  )
+  
+  # Rename columns
+  colnames(mean_diff_df) <- c("t", "t+1", "Mean Difference")
+  
+  # Create table using kableExtra
+  kable(mean_diff_df, caption = "Summary of Mean Differences", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+```
+
+## Load in Reddit data 
+
+```{r}
+reddit <- read_csv("/Users/stevenmesquiti/Dropbox/CEO-data/LIWC22-data/BLM_LIWC22_cleaned.csv")
+
+reddit <- reddit %>%
+  mutate(month_year = format(Date, "%Y-%m"))
+
+reddit <- reddit %>% filter(WC<=5400)   %>% 
+  filter(WC>=25)
+
+
+
+
+reddit_tidy <- reddit %>% dplyr::select(Date, Analytic, cogproc,we,i) %>%
+  mutate(Date = lubridate::ymd(Date),
+         time_month = as.numeric(Date - ymd("2019-03-01")) / 30) #making our quadratic term
+
+
+reddit_tidy$Date_off <- floor(reddit_tidy$time_month) #rounding off dates to whole months using ceiling function (0 = 2019-03, 24 = 2021-04)
+reddit_tidy$Date_covid <- as.factor(reddit_tidy$Date_off) #factorize
+
+```
+
+# Write our Stats Functions {.tabset}
+
+We were interested in how language changed relative to baseline one year pre-pandemic, as well as how language changed after the Pandemic. 
+
+As a result we ran two separate set of analyses comparing t(time zero) to t[i] and t(12 months after our centered data point) to t + 1. The groups you see will be centered on 03/2019. That is, 12 = 03/2020, 13 = 04/2020, etc. etc.
+
+## Analytic Thinking  
+
+```{r}
+analytic_my.t = function(fac1, fac2){
+  t.test(reddit_tidy$Analytic[reddit_tidy$Date_covid==fac1], 
+         reddit_tidy$Analytic[reddit_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t[i] 
+
+analytic_my.d = function(fac1, fac2){
+  cohen.d(reddit_tidy$Analytic[reddit_tidy$Date_covid==fac1], 
+          reddit_tidy$Analytic[reddit_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+analytic_mean <-  function(fac1, fac2){
+  mean(reddit_tidy$Analytic[reddit_tidy$Date_covid==fac1])- 
+    mean(reddit_tidy$Analytic[reddit_tidy$Date_covid==fac2])
+} #function to do mean differences
+
+```
+
+
+## Cognitive Processing 
+```{r}
+cogproc_my.t = function(fac1, fac2){
+  t.test(reddit_tidy$cogproc[reddit_tidy$Date_covid==fac1], 
+         reddit_tidy$cogproc[reddit_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t[i] 
+
+
+cogproc_my.d = function(fac1, fac2){
+  cohen.d(reddit_tidy$cogproc[reddit_tidy$Date_covid==fac1], 
+          reddit_tidy$cogproc[reddit_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+cogproc_mean <-  function(fac1, fac2){
+  mean(reddit_tidy$cogproc[reddit_tidy$Date_covid==fac1])- 
+    mean(reddit_tidy$cogproc[reddit_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+## I-words
+```{r}
+i_my.t = function(fac1, fac2){
+  t.test(reddit_tidy$i[reddit_tidy$Date_covid==fac1], 
+         reddit_tidy$i[reddit_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t + 1 
+
+i_my.d = function(fac1, fac2){
+  cohen.d(reddit_tidy$i[reddit_tidy$Date_covid==fac1], 
+          reddit_tidy$i[reddit_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+
+i_mean <-  function(fac1, fac2){
+  mean(reddit_tidy$i[reddit_tidy$Date_covid==fac1])- 
+    mean(reddit_tidy$i[reddit_tidy$Date_covid==fac2])
+} #function to do mean differences
+
+```
+## Tidy data
+Data transformations
+
+* None
+
+Exclusions
+
+* Excluded texts that were shorter than ** 25 words ** and greater than ** 5,400 words **!
+
+# Summary of the Data {.tabset}
+
+## Range of Dates
+
+```{r}
+range(reddit$Date)
+```
+
+
+## Number of Speakers
+
+```{r}
+speakers <- reddit %>%
+  select(author) %>%
+  unique() %>%
+  dplyr::summarize(n = n()) %>%
+  reactable::reactable(striped = TRUE)
+speakers
+```
+
+## Number of Posts
+
+```{r}
+posts <- reddit %>%
+  select(1) %>%
+  dplyr::summarize(n = n()) %>%
+  reactable::reactable(striped = TRUE)
+posts
+```
+
+## Mean Word Count 
+
+```{r}
+word_count <- reddit %>%
+  select(WC) %>%
+  dplyr::summarize(mean = mean(WC)) %>%
+  reactable::reactable(striped = TRUE)
+word_count
+```
+
+
+## We-words
+```{r}
+we_my.t = function(fac1, fac2){
+  t.test(reddit_tidy$we[reddit_tidy$Date_covid==fac1], 
+         reddit_tidy$we[reddit_tidy$Date_covid==fac2])
+} 
+
+we_my.d = function(fac1, fac2){
+  cohen.d(reddit_tidy$we[reddit_tidy$Date_covid==fac1], 
+          reddit_tidy$we[reddit_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+we_mean <-  function(fac1, fac2){
+  mean(reddit_tidy$we[reddit_tidy$Date_covid==fac1])- 
+    mean(reddit_tidy$we[reddit_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+# How did language change after the Pandemic? {.tabset}
+
+## Analytic Thinking {.tabset}
+
+### T-test 
+
+```{r}
+analytic_ttest<- mapply(analytic_my.t,seq(12,23,1), seq(13,24,1),SIMPLIFY=F) #compare t (first parantheses) to t[i] (second parentheses)increasing by 1
+post_pandemic_summary(analytic_ttest)
+
+```
+
+
+### Cohen's D
+
+```{r}
+analytic_d <- mapply(analytic_my.d,seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) 
+post_cohen_d(analytic_d)
+```
+
+### Mean Differences
+
+```{r}
+analytic_meandiff <- mapply(analytic_mean, seq(12,23,1), seq(13,24,1)) #across all of the months comparing to time zero
+post_mean_diff(analytic_meandiff)
+```
+
+
+## Cogproc {.tabset}
+
+### T-test
+
+```{r}
+cogproc_ttest <-mapply(cogproc_my.t, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+post_pandemic_summary(cogproc_ttest)
+```
+
+### Cohen's D
+
+```{r}
+cogproc_d <-mapply(cogproc_my.d, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE)
+post_cohen_d(cogproc_d)
+```
+
+### Mean Differences
+
+```{r}
+cogproc_meandiff <- mapply(cogproc_mean, seq(12,23,1), seq(13,24,1)) # comparing time zero [3/2019]across all of the months
+post_mean_diff(cogproc_meandiff)
+```
+
+## I-words {.tabset}
+
+### T-test
+
+```{r}
+i_ttest <- mapply(i_my.t, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) #compare t (first paratheses) to t[i] (second parentheses) increasing by 1
+post_pandemic_summary(i_ttest)
+```
+
+### Cohen's D
+
+```{r}
+i_d <- mapply(i_my.d,seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE)
+post_cohen_d(i_d)
+```
+
+### Mean Differences
+
+```{r}
+i_meandiff <- mapply(i_mean,seq(12,23,1), seq(13,24,1)) # comparing time zero [3/2020]across all of the months
+post_mean_diff(i_meandiff)
+```
+
+## We-words {.tabset}
+
+### T-test 
+
+```{r}
+we_ttest <- mapply(we_my.t, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+post_pandemic_summary(we_ttest)
+```
+
+### Cohen's D
+
+```{r}
+we_d <- mapply(we_my.d, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE)
+post_cohen_d(we_d)
+```
+
+
+### Mean Differences
+```{r}
+we_meandiff <- mapply(we_mean, seq(12,23,1), seq(13,24,1)) # comparing time zero [3/2020]across all of the months
+post_mean_diff(we_meandiff)
+```
+
+```{r}
+
+```
+
+
+
+# How did language change relative to baseline (one year before the pandemic; 03/2019)? {.tabset}
+
+## Analytic Thining {.tabset}
+
+### T-test 
+
+```{r}
+analytic_ttest_baseline <-mapply(analytic_my.t,0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first parantheses) to t[i] (second parentheses)increasing by 1
+baseline_ttest(analytic_ttest_baseline)
+```
+
+
+### Cohen's D
+
+```{r}
+analytic_D_baseline <- mapply(analytic_my.d,0, seq(1,24,1),SIMPLIFY=FALSE) 
+baseline_cohen_d(analytic_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+analytic_mean_baseline <- mapply(analytic_mean, 0, seq(1,24,1)) #across all of the months comparing to time zero
+baseline_mean_diff(analytic_mean_baseline)
+```
+
+
+
+## Cogproc {.tabset}
+
+### T-test
+
+```{r}
+cogproc_ttest_baseline <- mapply(cogproc_my.t, 0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+baseline_ttest(cogproc_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+cogproc_D_baseline <- mapply(cogproc_my.d, 0, seq(1,24,1),SIMPLIFY=FALSE)
+baseline_cohen_d(cogproc_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+cogproc_mean_baseline <- mapply(cogproc_mean, 0, seq(1,24,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(cogproc_meandiff)
+```
+
+## I-words {.tabset}
+
+### T-test
+
+```{r}
+i_ttest_baseline <- mapply(i_my.t, 0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first paratheseses) to t[i] (second parentheses) increasing by 1
+baseline_ttest(i_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+i_D_baseline <- mapply(i_my.d, 0, seq(1,24,1),SIMPLIFY=FALSE)
+baseline_cohen_d(i_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+i_mean_baseline <- mapply(i_mean, 0, seq(1,24,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(i_mean_baseline)
+```
+
+## We-words {.tabset}
+
+### T-test 
+
+```{r}
+we_ttest_baseline <- mapply(we_my.t, 0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+baseline_ttest(we_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+we_D_baseline <- mapply(we_my.d, 0, seq(1,24,1),SIMPLIFY=FALSE)
+baseline_cohen_d(we_D_baseline)
+```
+
+
+### Mean Differences
+```{r}
+we_mean_baseline <- mapply(we_mean, 0, seq(1,24,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(we_mean_baseline)
+```
+ 
+# Package Citations
+
+```{r}
+report::cite_packages()
+```

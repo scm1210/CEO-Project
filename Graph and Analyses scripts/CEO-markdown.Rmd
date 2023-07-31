@@ -1,0 +1,1453 @@
+---
+title: "CEO Pandemic Analyses"
+author: "Steven Mesquiti"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    highlight: tango
+    theme: united
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+---
+```{r setup, include=FALSE, message=FALSE}
+# set chunk options for the document
+# include=FALSE means that this chunk will not show up in the report
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = F #let's us save old models. only wanna do this when models are finalized
+                      , dpi = 150, fig.path = "CEO_figs/") 
+# echo = TRUE means that the source code will be displayed
+# message = FALSE suppresses messages
+# warning = FALSE suppresses warnings
+# cache = FALSE recompiles from scratch each time you knit 
+# dpi = 150 sets the figure resolution
+# fig.path specifies a directory where figures will be output
+
+options(scipen = 999) #turn off scientific notation
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+set.seed(65) #set seed for random number generation
+```
+
+# Prep data {.tabset}
+
+## Load necessary packages and set Working Directory
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse,zoo,lubridate,plotrix,ggpubr, caret, broom, kableExtra, reactable, effsize, install = T)
+setwd("/Users/stevenmesquiti/Desktop/CEO Project/Manuscript analyses") 
+```
+
+
+## Define aesthetics
+```{r}
+colors =  c("CEO" = "dodgerblue3","Reddit" = "red")
+palette_map = c("#3B9AB2", "#EBCC2A", "#F21A00")
+palette_condition = c("#ee9b00", "#bb3e03", "#005f73")
+
+plot_aes = theme_classic() +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 10),)+
+  theme(text = element_text(size = 16, family = "Futura Medium")) + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))+
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 20)) +
+  theme(axis.text=element_text(size = 14),
+        axis.title=element_text(size = 20,face="bold"))
+```
+
+## Write our Table Funcions
+```{r}
+baseline_ttest <- function(ttest_list) {
+  # Extract relevant information from each test and store in a data frame
+   ttest_df <- data.frame(
+    Group1 = seq(0, 0, 1),
+    Group2 = seq(1, 24, 1),
+    t = sapply(ttest_list, function(x) paste0("t(", round(x$parameter, 3), ") = ", round(x$statistic, 3))),
+    p_value = sapply(ttest_list, function(x) x$p.value)
+  )
+  
+  # Format p-values as scientific notation
+  ttest_df$p_value <- format(ttest_df$p_value, scientific = T)
+  
+  # Rename columns
+  colnames(ttest_df) <- c("t", "t + 1 ", "t-statistic", "p-value")
+  
+  # Create table using kableExtra
+  kable(ttest_df, caption = "Summary of Welch's t-Tests", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+post_pandemic_summary <- function(ttest_list) {
+  # Extract relevant information from each test and store in a data frame
+  ttest_df <- data.frame(
+    Group1 = seq(12,23,1),
+    Group2 = seq(13,24,1),
+    t = sapply(ttest_list, function(x) paste0("t(", round(x$parameter, 3), ") = ", round(x$statistic, 3))),
+    p_value = sapply(ttest_list, function(x) x$p.value)
+  )
+  
+  # Format p-values as scientific notation
+  ttest_df$p_value <- format(ttest_df$p_value, scientific = T)
+  
+  # Rename columns
+  colnames(ttest_df) <- c("t", "t + 1 ", "t-value", "p-value")
+  
+  # Create table using kableExtra
+  kable(ttest_df, caption = "Summary of Welch's t-Tests", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+
+
+baseline_cohen_d <- function(cohen_d_list) {
+  # Extract relevant information from each test and store in a data frame
+  cohen_d_df <- data.frame(
+    Group1 = seq(0,0,1),
+    Group2 = seq(1,24,1),
+    Cohen_d = sapply(cohen_d_list, function(x) x$estimate)
+  )
+  
+  # Rename columns
+  colnames(cohen_d_df) <- c("t", "t + 1", "Cohen's d")
+  
+  # Create table using kableExtra
+  kable(cohen_d_df, caption = "Summary of Cohen's D", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+post_cohen_d <- function(cohen_d_list) {
+  # Extract relevant information from each test and store in a data frame
+  cohen_d_df <- data.frame(
+    Group1 = seq(12,23,1),
+    Group2 = seq(13,24,1),
+    Cohen_d = sapply(cohen_d_list, function(x) x$estimate)
+  )
+  
+  # Rename columns
+  colnames(cohen_d_df) <- c("t", "t+1", "Cohen's d")
+  
+  # Create table using kableExtra
+  kable(cohen_d_df, caption = "Summary of Cohen's D", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+baseline_mean_diff <- function(mean_diff_list) {
+  # Extract relevant information from each mean difference calculation and store in a data frame
+  mean_diff_df <- data.frame(
+    Group1 = seq(0,0,1),
+    Group2 = seq(1,24,1),
+    mean_diff = mean_diff_list
+  )
+  
+  # Rename columns
+  colnames(mean_diff_df) <- c("t", "t+1", "Mean Difference")
+  
+  # Create table using kableExtra
+  kable(mean_diff_df, caption = "Summary of Mean Differences", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+
+post_mean_diff <- function(mean_diff_list) {
+  # Extract relevant information from each mean difference calculation and store in a data frame
+  mean_diff_df <- data.frame(
+    Group1 = seq(12,23,1),
+    Group2 = seq(13,24,1),
+    mean_diff = mean_diff_list
+  )
+  
+  # Rename columns
+  colnames(mean_diff_df) <- c("t", "t+1", "Mean Difference")
+  
+  # Create table using kableExtra
+  kable(mean_diff_df, caption = "Summary of Mean Differences", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+
+```
+
+## Load in the CEO Data 
+```{r}
+data  <-  read_csv("https://raw.githubusercontent.com/scm1210/Language_Lab_Repro/main/Big_CEO.csv") #read in the data from github 
+
+data <- data["2019-03-01"<= data$Date & data$Date <= "2021-04-01",] #subsetting covid dates 
+
+nonclean <- nrow(data)
+
+data <- data %>% filter(WC<=5400) %>% #filter out based on our exclusion criteria
+  filter(WC>=25)
+
+clean <- nrow(data)
+
+nonclean - clean
+
+data$month_year <- format(as.Date(data$Date), "%Y-%m") #reformat 
+
+data_tidy <- data %>% dplyr::select(Date, Speaker, Analytic, cogproc,allnone,we,i,emo_anx) %>%
+  mutate(Date = lubridate::ymd(Date),
+         time_month = as.numeric(Date - ymd("2019-03-01")) / 30, #centering at start of march
+         time_month_quad = time_month * time_month) #making our quadratic term
+
+data_tidy$Date_off <- floor(data_tidy$time_month) #rounding off dates to whole months using ceiling function (0 = 2019-03, 24 = 2021-04)
+data_tidy$Date_covid <- as.factor(data_tidy$Date_off) #factorize
+
+```
+
+## Load in Reddit data 
+
+```{r}
+reddit <- read_csv("/Users/stevenmesquiti/Dropbox/CEO-data/LIWC22-data/BLM_LIWC22_cleaned.csv")
+
+reddit <- reddit %>%
+  mutate(month_year = format(Date, "%Y-%m"))
+
+reddit <- reddit %>% filter(WC<=5400)   %>% 
+  filter(WC>=25)
+
+
+
+
+reddit_tidy <- reddit %>% dplyr::select(Date, Analytic, cogproc,we,i) %>%
+  mutate(Date = lubridate::ymd(Date),
+         time_month = as.numeric(Date - ymd("2019-03-01")) / 30) #making our quadratic term
+
+
+reddit_tidy$Date_off <- floor(reddit_tidy$time_month) #rounding off dates to whole months using ceiling function (0 = 2019-03, 24 = 2021-04)
+reddit_tidy$Date_covid <- as.factor(reddit_tidy$Date_off) #factorize
+
+```
+
+
+## Create Tidy Data for Graphs
+
+```{r,}
+df <- read_csv("https://raw.githubusercontent.com/scm1210/Language_Lab_Repro/main/Big_CEO.csv")#put code here to read in Big CEO data
+df <- df %>% filter(WC<=5400)   %>% 
+  filter(WC>=25)
+
+df$month_year <- format(as.Date(df$Date), "%Y-%m") ###extracting month and year to build fiscal quarter graphs, need a new variable bc if not it'll give us issues
+
+df2 <- df %>%#converting our dates to quarterly dates 
+  group_by(month_year) %>% ###grouping by the Top100 tag and date 
+  summarise_at(vars("Date","WC", "Analytic", "Clout", "Drives","cogproc","focuspast","focuspresent",
+                    "focusfuture","power","allure","we","i",'insight','emo_anx','allnone'),  funs(mean, std.error),) #pulling the means and SEs for our variables of interest
+
+df2 <- df2["2019-01"<= df2$month_year & df2$month_year <= "2021-03",] #covid dates 
+
+
+
+reddit_tidy_2 <- reddit %>%#converting our dates to quarterly dates 
+  group_by(month_year) %>% ###grouping by the Top100 tag and date 
+  summarise_at(vars("Date","WC", "Analytic","cogproc","we","i"),  funs(mean, std.error),)
+
+
+```
+
+# Write our Stats Functions {.tabset}
+
+We were interested in how language changed relative to baseline one year pre-pandemic, as well as how language changed after the Pandemic. 
+
+As a result we ran two separate set of analyses comparing t(time zero) to t[i] and t(12 months after our centered data point) to t + 1. The groups you see will be centered on 03/2019. That is, 12 = 03/2020, 13 = 04/2020, etc. etc.
+
+## Analytic Thinking 
+```{r}
+analytic_my.t = function(fac1, fac2){
+  t.test(data_tidy$Analytic[data_tidy$Date_covid==fac1], 
+         data_tidy$Analytic[data_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t[i] 
+
+analytic_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$Analytic[data_tidy$Date_covid==fac1], 
+          data_tidy$Analytic[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+analytic_mean <-  function(fac1, fac2){
+  mean(data_tidy$Analytic[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$Analytic[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+
+```
+
+
+## Cognitive Processing 
+```{r}
+cogproc_my.t = function(fac1, fac2){
+  t.test(data_tidy$cogproc[data_tidy$Date_covid==fac1], 
+         data_tidy$cogproc[data_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t[i] 
+
+
+cogproc_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$cogproc[data_tidy$Date_covid==fac1], 
+          data_tidy$cogproc[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+cogproc_mean <-  function(fac1, fac2){
+  mean(data_tidy$cogproc[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$cogproc[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+## I-words
+```{r}
+i_my.t = function(fac1, fac2){
+  t.test(data_tidy$i[data_tidy$Date_covid==fac1], 
+         data_tidy$i[data_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t + 1 
+
+i_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$i[data_tidy$Date_covid==fac1], 
+          data_tidy$i[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+
+i_mean <-  function(fac1, fac2){
+  mean(data_tidy$i[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$i[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+
+```
+
+
+## We-words
+```{r}
+we_my.t = function(fac1, fac2){
+  t.test(data_tidy$we[data_tidy$Date_covid==fac1], 
+         data_tidy$we[data_tidy$Date_covid==fac2])
+} 
+
+we_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$we[data_tidy$Date_covid==fac1], 
+          data_tidy$we[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+we_mean <-  function(fac1, fac2){
+  mean(data_tidy$we[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$we[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+
+## Tidy data
+Data transformations
+
+* None
+
+Exclusions
+
+* Excluded texts that were shorter than ** 25 words ** and greater than ** 5,400 words **!
+
+# Summary of the Data {.tabset}
+
+## Range of Dates
+
+```{r}
+range(data$Date)
+```
+
+
+## Number of Speakers
+
+```{r}
+speakers <- data %>%
+  select(Speaker) %>%
+  unique() %>%
+  dplyr::summarize(n = n()) %>%
+  reactable::reactable(striped = TRUE)
+speakers
+```
+
+## Number of Transcripts
+
+```{r}
+transcripts <- data %>%
+  select(1) %>%
+  dplyr::summarize(n = n()) %>%
+  reactable::reactable(striped = TRUE)
+transcripts
+```
+
+## Mean Word Count 
+
+```{r}
+word_count <- data %>%
+  select(WC) %>%
+  dplyr::summarize(mean = mean(WC)) %>%
+  reactable::reactable(striped = TRUE)
+word_count
+```
+
+
+# How did language change after the Pandemic? 
+
+## Analytic Thinking {.tabset}
+
+### T-test 
+
+```{r}
+analytic_ttest<- mapply(analytic_my.t,seq(12,23,1), seq(13,24,1),SIMPLIFY=F) #compare t (first parantheses) to t[i] (second parentheses)increasing by 1
+post_pandemic_summary(analytic_ttest)
+```
+
+
+### Cohen's D
+
+```{r}
+analytic_d <- mapply(analytic_my.d,seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) 
+post_cohen_d(analytic_d)
+```
+
+### Mean Differences
+
+```{r}
+analytic_meandiff <- mapply(analytic_mean, seq(12,23,1), seq(13,24,1)) #across all of the months comparing to time zero
+post_mean_diff(analytic_meandiff)
+```
+
+## Cogproc {.tabset}
+
+### T-test
+
+```{r}
+cogproc_ttest <-mapply(cogproc_my.t, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+post_pandemic_summary(cogproc_ttest)
+```
+
+### Cohen's D
+
+```{r}
+cogproc_d <-mapply(cogproc_my.d, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE)
+post_cohen_d(cogproc_d)
+```
+
+### Mean Differences
+
+```{r}
+cogproc_meandiff <- mapply(cogproc_mean, seq(12,23,1), seq(13,24,1)) # comparing time zero [3/2019]across all of the months
+post_mean_diff(cogproc_meandiff)
+```
+
+## I-words {.tabset}
+
+### T-test
+
+```{r}
+i_ttest <- mapply(i_my.t, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) #compare t (first paratheses) to t[i] (second parentheses) increasing by 1
+post_pandemic_summary(i_ttest)
+```
+
+### Cohen's D
+
+```{r}
+i_d <- mapply(i_my.d,seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE)
+post_cohen_d(i_d)
+```
+
+### Mean Differences
+
+```{r}
+i_meandiff <- mapply(i_mean,seq(12,23,1), seq(13,24,1)) # comparing time zero [3/2020]across all of the months
+post_mean_diff(i_meandiff)
+```
+
+## We-words {.tabset}
+
+### T-test 
+
+```{r}
+we_ttest <- mapply(we_my.t, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+post_pandemic_summary(we_ttest)
+```
+
+### Cohen's D
+
+```{r}
+we_d <- mapply(we_my.d, seq(12,23,1), seq(13,24,1),SIMPLIFY=FALSE)
+post_cohen_d(we_d)
+```
+
+
+### Mean Differences
+```{r}
+we_meandiff <- mapply(we_mean, seq(12,23,1), seq(13,24,1)) # comparing time zero [3/2020]across all of the months
+post_mean_diff(we_meandiff)
+```
+
+# How did language change relative to baseline (one year before the pandemic; 03/2019)?
+
+## Analytic Thining {.tabset}
+
+### T-test 
+
+```{r}
+analytic_ttest_baseline <-mapply(analytic_my.t,0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first parantheses) to t[i] (second parentheses)increasing by 1
+baseline_ttest(analytic_ttest_baseline)
+```
+
+
+### Cohen's D
+
+```{r}
+analytic_D_baseline <- mapply(analytic_my.d,0, seq(1,24,1),SIMPLIFY=FALSE) 
+baseline_cohen_d(analytic_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+analytic_mean_baseline <- mapply(analytic_mean, 0, seq(1,24,1)) #across all of the months comparing to time zero
+baseline_mean_diff(analytic_mean_baseline)
+```
+
+## Cogproc {.tabset}
+
+### T-test
+
+```{r}
+cogproc_ttest_baseline <- mapply(cogproc_my.t, 0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+baseline_ttest(cogproc_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+cogproc_D_baseline <- mapply(cogproc_my.d, 0, seq(1,24,1),SIMPLIFY=FALSE)
+baseline_cohen_d(cogproc_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+cogproc_mean_baseline <- mapply(cogproc_mean, 0, seq(1,24,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(cogproc_meandiff)
+```
+
+## I-words {.tabset}
+
+### T-test
+
+```{r}
+i_ttest_baseline <- mapply(i_my.t, 0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first paratheseses) to t[i] (second parentheses) increasing by 1
+baseline_ttest(i_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+i_D_baseline <- mapply(i_my.d, 0, seq(1,24,1),SIMPLIFY=FALSE)
+baseline_cohen_d(i_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+i_mean_baseline <- mapply(i_mean, 0, seq(1,24,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(i_mean_baseline)
+```
+
+## We-words {.tabset}
+
+### T-test 
+
+```{r}
+we_ttest_baseline <- mapply(we_my.t, 0, seq(1,24,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+baseline_ttest(we_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+we_D_baseline <- mapply(we_my.d, 0, seq(1,24,1),SIMPLIFY=FALSE)
+baseline_cohen_d(we_D_baseline)
+```
+
+
+### Mean Differences
+```{r}
+we_mean_baseline <- mapply(we_mean, 0, seq(1,24,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(we_mean_baseline)
+```
+
+# 2019-2021 Graphs {.tabset}
+
+## Analytic Thinking 
+```{r fig.height=6, fig.width=6}
+Analytic <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date_mean, y = Analytic_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date_mean,ymin=Analytic_mean-Analytic_std.error, ymax=Analytic_mean+Analytic_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy_2, aes(x = Date_mean, y = Analytic_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy_2, aes(x = Date_mean,ymin=Analytic_mean-Analytic_std.error, ymax=Analytic_mean+Analytic_std.error, fill = "Reddit"), alpha=0.2) +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  ggtitle("Analytic Thinking") +
+  labs(x = "Month", y = 'Standardized score') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 2) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+
+Analytic <- Analytic + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=45,label="Summer 2020 surge", size = 5) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=47,label="Winter 2020 surge", size = 5) 
+
+Analytic <- Analytic +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+
+Analytic
+  
+```
+
+```{r fig.height=6, fig.width=6}
+Analytic_CEO <- ggplot(data=df2, aes(x=Date_mean, y=Analytic_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  geom_ribbon(aes(ymin=Analytic_mean-Analytic_std.error, ymax=Analytic_mean+Analytic_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  ggtitle("Analytic Thinking") +
+  labs(x = "Month", y = 'Standardized score') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 2) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+Analytic_CEO <- Analytic_CEO + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=50,label="Summer 2020 surge", size = 3) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=43,label="Winter 2020 surge", size = 3)
+```
+
+
+## Cogproc
+
+```{r fig.height=6, fig.width=6}
+Cogproc <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date_mean, y = cogproc_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date_mean,ymin=cogproc_mean-cogproc_std.error, ymax=cogproc_mean+cogproc_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy_2, aes(x = Date_mean, y = cogproc_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy_2, aes(x = Date_mean,ymin=cogproc_mean-cogproc_std.error, ymax=cogproc_mean+cogproc_std.error, fill = "Reddit"), alpha=0.2) +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  ggtitle("Cognitive Processing") +
+  labs(x = "Month", y = '% of Total Words') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 2) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+
+Cogproc <- Cogproc + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=12.2,label="Summer 2020 surge", size = 5) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=12.3,label="Winter 2020 surge", size = 5) 
+
+Cogproc <- Cogproc +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+
+Cogproc
+```
+
+```{r fig.height=6, fig.width=6}
+CEO_Cogproc <- ggplot(data=df2, aes(x=Date_mean, y=cogproc_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  geom_ribbon(aes(ymin=cogproc_mean-cogproc_std.error, ymax=cogproc_mean+cogproc_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  ggtitle("Cognitive Processing") +
+  labs(x = "Month", y = '% Total Words') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 1) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+CEO_Cogproc <- CEO_Cogproc + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=12.5,label="Summer 2020 surge", size = 3) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=12.5,label="Winter 2020 surge", size = 3)
+```
+
+## I words
+
+```{r fig.height=6, fig.width=6}
+i <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date_mean, y = i_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date_mean,ymin=i_mean-i_std.error, ymax=i_mean+i_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy_2, aes(x = Date_mean, y = i_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy_2, aes(x = Date_mean,ymin=i_mean-i_std.error, ymax=i_mean+i_std.error, fill = "Reddit"), alpha=0.2) +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  ggtitle("I-usage") +
+  labs(x = "Month", y = '% of Total Words') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 2) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+
+i <- i + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=2.25,label="Summer 2020 surge", size = 5) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=1.95,label="Winter 2020 surge", size = 5) 
+
+i <- i +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+i
+```
+
+```{r fig.height=6, fig.width=6}
+CEO_i <- ggplot(data=df2, aes(x=Date_mean, y=i_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  geom_ribbon(aes(ymin=i_mean-i_std.error, ymax=i_mean+i_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  ggtitle("I-usage") +
+  labs(x = "Month", y = '% Total Words') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 1) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+CEO_i <- CEO_i + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=1.95,label="Summer 2020 surge", size = 3) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=1.95,label="Winter 2020 surge", size = 3)
+```
+
+## We words
+
+```{r fig.height=6, fig.width=6}
+we <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date_mean, y = we_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date_mean,ymin=we_mean-we_std.error, ymax=we_mean+we_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy_2, aes(x = Date_mean, y = we_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy_2, aes(x = Date_mean,ymin=we_mean-we_std.error, ymax=we_mean+we_std.error, fill = "Reddit"), alpha=0.2) +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  ggtitle("We-usage") +
+  labs(x = "Month", y = '% of Total Words') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 2) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+
+we <- we + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=6.5,label="Summer 2020 surge", size = 5) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=6,label="Winter 2020 surge", size = 5) 
+we <- we +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+we
+```
+
+```{r fig.height=6, fig.width=6}
+CEO_we <- ggplot(data=df2, aes(x=Date_mean, y=we_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  scale_x_date(date_breaks = "3 month", date_labels = "%Y-%m") +
+  geom_ribbon(aes(ymin=we_mean-we_std.error, ymax=we_mean+we_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  ggtitle("We-usage") +
+  labs(x = "Month", y = '% Total Words') +
+  plot_aes + #here's our plot aes object
+  geom_vline(xintercept = as.numeric(as.Date("2020-03-01")), linetype = 1) +
+  geom_rect(data = df2, #summer surge
+            aes(xmin = as.Date("2020-06-15", "%Y-%m-%d"), 
+                xmax = as.Date("2020-07-20",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009) +
+  geom_rect(data = df2, #winter surge
+            aes(xmin = as.Date("2020-11-15", "%Y-%m-%d"), 
+                xmax = as.Date("2021-01-01",  "%Y-%m-%d"),
+                ymin = -Inf, 
+                ymax = Inf),
+            fill = "gray", 
+            alpha = 0.009)
+CEO_we <- CEO_we + annotate(geom="text",x=as.Date("2020-07-01"),
+                                y=6.5,label="Summer 2020 surge", size = 3) + 
+  annotate(geom="text",x=as.Date("2020-12-03"),
+           y=6.5,label="Winter 2020 surge", size = 3)
+```
+
+## Tie them all together
+```{r,fig.height=14, fig.width=14}
+graphs <- ggpubr::ggarrange(Analytic,Cogproc,i,we,ncol=2, nrow=2, common.legend = TRUE, legend = "bottom")
+annotate_figure(graphs,
+                top = text_grob("CEOs' Language Change",  color = "black", face = "bold", size = 20))
+```
+
+## CEO Only Graphs 
+
+```{r,fig.height=14, fig.width=14}
+graphs <- ggpubr::ggarrange(Analytic_CEO,CEO_Cogproc,CEO_i,CEO_we ,ncol=2, nrow=2, common.legend = TRUE, legend = "bottom")
+annotate_figure(graphs,
+                top = text_grob("CEOs' Language Change",  color = "black", face = "bold", size = 20))
+```
+
+# Exploratory Analyses {.tabset}
+
+```{r}
+df <-read_csv("https://raw.githubusercontent.com/scm1210/Language_Lab_Repro/main/Big_CEO.csv") #read in the data from github 
+#put code here to read in Big CEO data
+df <- df %>% filter(WC<=5400)   %>% 
+  filter(WC>=25)
+
+df$month_year <- format(as.Date(df$Date), "%Y-%m") ###extracting month and year to build fiscal quarter graphs, need a new variable bc if not it'll give us issues
+
+df <- df["2010-01-01"<= df$Date & df$Date <= "2021-04-01",] #subsetting covid dates 
+
+data_tidy <- df %>% dplyr::select(Date, Speaker, Analytic, cogproc,allnone,we,i,emo_anx) %>%
+  mutate(Date = lubridate::ymd(Date),
+         time_month = as.numeric(Date - ymd("2010-03-01")) /91, #centering at start of Q1 2020, divide by 91 bc ~ number days in a quarter 
+         time_month_quad = time_month * time_month) #making our quadratic term, which is not needed
+
+data_tidy$month_year <- format(as.Date(data_tidy$Date), "%Y-%m") ###extracting month and year to build fiscal quarter graphs, need a new variable bc if not it'll give us issues
+data_tidy$Date_off <- floor(data_tidy$time_month) #rounding off dates to whole months using floor function (0 = Q1 2020)
+data_tidy$Date_covid <- as.factor(data_tidy$Date_off) #factorize
+```
+
+## Load in Reddit data 
+
+```{r}
+reddit <- read_csv("~/Dropbox/CEO-data/LIWC-15-Data/LIWC_BLMProject_22cities_01012016-04302021_weeklyavg.csv")
+
+reddit <- reddit %>%
+  mutate(month_year = format(Week, "%Y-%m"))
+
+### clean and tidy reddit data 
+
+#reddit$month_year <- as.Date(reddit$month_year)
+
+reddit$month_year <- format(as.Date(reddit$Week), "%Y-%m") ###extracting month and year to build fiscal quarter graphs, need a new variable bc if not it'll give us issues
+
+reddit <- reddit %>% filter(WC<=5400)   %>% 
+  filter(WC>=25)
+
+reddit_tidy <- reddit %>%#converting our dates to quarterly dates 
+  group_by(month_year) %>% ###grouping by the Top100 tag and date 
+  summarise_at(vars("Week","WC", "Analytic","we","i",'insight'),  funs(mean, std.error),) #pulling the means and SEs for our variables of interest
+
+reddit_tidy <- reddit_tidy[reddit_tidy$month_year <= "2021-04",] #subsetting covid dates 
+
+
+```
+
+## Write our Table Funcions
+
+```{r}
+baseline_ttest <- function(ttest_list) {
+  n <- length(ttest_list)  # Get the length of ttest_list
+  
+  # Extract relevant information from each test and store in a data frame
+  ttest_df <- data.frame(
+    Group1 = rep(39, n),
+    Group2 = seq(-1, 44, 1)[1:n],
+    t = sapply(ttest_list, function(x) paste0("t(", round(x$parameter, 3), ") = ", round(x$statistic, 3))),
+    p_value = sapply(ttest_list, function(x) x$p.value)
+  )
+  
+  # Format p-values as scientific notation
+  ttest_df$p_value <- format(ttest_df$p_value, scientific = TRUE)
+  
+  # Rename columns
+  colnames(ttest_df) <- c("Group1", "Group2", "t-statistic", "p-value")
+  
+  # Create table using kableExtra
+  kable(ttest_df, caption = "Summary of Welch's t-Tests", booktabs = TRUE) %>%
+   kableExtra::kable_styling()
+}
+
+
+
+baseline_cohen_d <- function(cohen_d_list) {
+  n <- length(cohen_d_list)  # Get the length of cohen_d_list
+  
+  # Extract relevant information from each test and store in a data frame
+  cohen_d_df <- data.frame(
+    `t` = rep(39, n),
+    `t + 1` = seq(-1, 44, 1)[1:n],
+    `Cohen's d` = sapply(cohen_d_list, function(x) {
+      if (is.atomic(x)) {
+        return(x)
+      } else {
+        return(x$estimate)
+      }
+    })
+  )
+  
+  # Rename columns
+  colnames(cohen_d_df) <- c("t", "t + 1", "Cohen's d")
+  
+  # Create table using kableExtra
+  kable(cohen_d_df, caption = "Summary of Cohen's D", booktabs = TRUE) %>%
+    kableExtra::kable_styling()
+}
+
+baseline_mean_diff <- function(mean_diff_list) {
+  n <- length(mean_diff_list)  # Get the length of mean_diff_list
+  
+  # Extract relevant information from each mean difference calculation and store in a data frame
+  mean_diff_df <- data.frame(
+    Group1 = rep(39, n),
+    Group2 = seq(-1, 44, 1)[1:n],
+    `Mean Difference` = mean_diff_list
+  )
+  
+  # Rename columns
+  colnames(mean_diff_df) <- c("t", "t+1", "Mean Difference")
+  
+  # Create table using kableExtra
+  kable(mean_diff_df, caption = "Summary of Mean Differences", booktabs = TRUE) %>%
+    kableExtra::kable_styling()
+}
+
+
+```
+
+## Write our Stats Funcions
+
+## Analytic Thinking
+
+```{r}
+ 
+analytic_my.t = function(fac1, fac2){
+  t.test(data_tidy$Analytic[data_tidy$Date_covid==fac1], 
+         data_tidy$Analytic[data_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t[i] 
+
+analytic_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$Analytic[data_tidy$Date_covid==fac1], 
+          data_tidy$Analytic[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+analytic_mean <-  function(fac1, fac2){
+  mean(data_tidy$Analytic[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$Analytic[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+
+## Cognitive Processing 
+```{r}
+cogproc_my.t = function(fac1, fac2){
+  t.test(data_tidy$cogproc[data_tidy$Date_covid==fac1], 
+         data_tidy$cogproc[data_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t[i] 
+
+
+cogproc_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$cogproc[data_tidy$Date_covid==fac1], 
+          data_tidy$cogproc[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+cogproc_mean <-  function(fac1, fac2){
+  mean(data_tidy$cogproc[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$cogproc[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+## I-words
+```{r}
+i_my.t = function(fac1, fac2){
+  t.test(data_tidy$i[data_tidy$Date_covid==fac1], 
+         data_tidy$i[data_tidy$Date_covid==fac2])
+} #writing our t-test function to compare t to t + 1 
+
+i_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$i[data_tidy$Date_covid==fac1], 
+          data_tidy$i[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+
+i_mean <-  function(fac1, fac2){
+  mean(data_tidy$i[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$i[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+
+```
+
+
+## We-words
+```{r}
+we_my.t = function(fac1, fac2){
+  t.test(data_tidy$we[data_tidy$Date_covid==fac1], 
+         data_tidy$we[data_tidy$Date_covid==fac2])
+} 
+
+we_my.d = function(fac1, fac2){
+  cohen.d(data_tidy$we[data_tidy$Date_covid==fac1], 
+          data_tidy$we[data_tidy$Date_covid==fac2])
+} #function for cohen's d
+
+we_mean <-  function(fac1, fac2){
+  mean(data_tidy$we[data_tidy$Date_covid==fac1])- 
+    mean(data_tidy$we[data_tidy$Date_covid==fac2])
+} #function to do mean differences
+```
+
+
+# Analyses 
+
+## Analytic Thining {.tabset}
+
+### T-test 
+
+```{r}
+analytic_ttest_baseline <-mapply(analytic_my.t,39, seq(1,44,1),SIMPLIFY=FALSE) #compare t (first parantheses) to t[i] (second parentheses)increasing by 1
+baseline_ttest(analytic_ttest_baseline)
+```
+
+
+### Cohen's D
+
+```{r}
+analytic_D_baseline <- mapply(analytic_my.d,39, seq(1,44,1),SIMPLIFY=FALSE) 
+baseline_cohen_d(analytic_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+analytic_mean_baseline <- mapply(analytic_mean, 39, seq(1,44,1)) #across all of the months comparing to time zero
+baseline_mean_diff(analytic_mean_baseline)
+```
+
+## Cogproc {.tabset}
+
+### T-test
+
+```{r}
+cogproc_ttest_baseline <- mapply(cogproc_my.t, 39, seq(-1,44,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+baseline_ttest(cogproc_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+cogproc_D_baseline <- mapply(cogproc_my.d,39, seq(-1,44,1),SIMPLIFY=FALSE)
+baseline_cohen_d(cogproc_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+cogproc_mean_baseline <- mapply(cogproc_mean, 39, seq(-1,44,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(cogproc_meandiff)
+```
+
+## I-words {.tabset}
+
+### T-test
+
+```{r}
+i_ttest_baseline <- mapply(i_my.t, 39, seq(-1,44,1),SIMPLIFY=FALSE) #compare t (first paratheseses) to t[i] (second parentheses) increasing by 1
+baseline_ttest(i_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+i_D_baseline <- mapply(i_my.d, 39, seq(-1,44,1),SIMPLIFY=FALSE)
+baseline_cohen_d(i_D_baseline)
+```
+
+### Mean Differences
+
+```{r}
+i_mean_baseline <- mapply(i_mean, 39, seq(1,44,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(i_mean_baseline)
+```
+
+## We-words {.tabset}
+
+### T-test 
+
+```{r}
+we_ttest_baseline <- mapply(we_my.t, 39, seq(-1,44,1),SIMPLIFY=FALSE) #compare t (first parathese) to t[i] (second parantheses) increasing by 1
+baseline_ttest(we_ttest_baseline)
+```
+
+### Cohen's D
+
+```{r}
+we_D_baseline <- mapply(we_my.d, 0, seq(-1,44,1),SIMPLIFY=FALSE)
+baseline_cohen_d(we_D_baseline)
+```
+
+
+### Mean Differences
+```{r}
+we_mean_baseline <- mapply(we_mean, 39, seq(-1,44,1)) # comparing time zero [3/2020]across all of the months
+baseline_mean_diff(we_mean_baseline)
+```
+
+
+## Figures {.tabset}
+
+```{r}
+df2<- df %>%
+  mutate(Date=as.yearqtr(Date)) %>% #converting our dates to quarterly dates 
+  group_by(Top100, Date) %>% ###grouping by the Top100 tag and date 
+  summarise_at(vars("WC", "Analytic", "Clout", "Drives","cogproc","focuspast","focuspresent",
+                    "focusfuture","power","allure","we","i",'insight','emo_anx','allnone',),  funs(mean, std.error),) #pulling the means and SEs for our variables of interest
+df2 <- df2["2010 Q1"<= df2$Date & df2$Date <= "2021 Q1",]
+df2 <- df2[!duplicated(df2[c('Date')]),] #need to run this to get rid of duplicates for dates created when we collaspe into quarterly dates
+
+
+reddit_tidy <- reddit %>%
+  mutate(Date=as.yearqtr(month_year)) %>% #converting our dates to quarterly dates 
+  group_by(month_year) %>% ###grouping by the Top100 tag and date 
+  summarise_at(vars("Week","WC", "Analytic", "Clout","cogproc","focuspast","focuspresent",
+                    "focusfuture","power","we","i",'insight',),  funs(mean, std.error),) #pulling the means and SEs for our variables of interest
+
+reddit_tidy <- reddit_tidy %>%
+  mutate(Quarter = as.yearqtr(Week_mean))
+reddit_tidy <- reddit_tidy[!duplicated(reddit_tidy[c('Quarter')]),] #need to run this to get rid of duplicates for dates created when we collaspe into quarterly dates
+
+
+```
+
+### Analytic Thinking 
+
+```{r fig.height=6, fig.width=6}
+analytic <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date, y = Analytic_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date,ymin=Analytic_mean-Analytic_std.error, ymax=Analytic_mean+Analytic_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy, aes(x = Quarter, y = Analytic_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy, aes(x = Quarter,ymin=Analytic_mean-Analytic_std.error, ymax=Analytic_mean+Analytic_std.error, fill = "Reddit"), alpha=0.2) +
+  ggtitle("Analytic Thinking") + 
+  labs(x = "Month", y = 'Standardized score') +
+  plot_aes + #here's our plot aes object
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+
+analytic <- analytic + annotate("text", x = 2011.5 , y = 36,
+         label = "paste(italic(d[2010]), \" = -0.0817\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 36,label = "paste(italic(d[2015]), \" = -0.050\")", parse = TRUE,size = 5)
+
+analytic <- analytic +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+
+analytic
+```
+
+```{r fig.height=6, fig.width=6}
+CEO_Analytic_decade <- ggplot(data=df2, aes(x=Date, y=Analytic_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  #geom_point(size=.5) +
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") +
+  ggtitle("Analytic Thinking") + 
+  geom_ribbon(aes(ymin=Analytic_mean-Analytic_std.error, ymax=Analytic_mean+Analytic_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  labs(x = "Month", y = 'Standardized score') +
+  plot_aes + #here's our plot aes object
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+CEO_Analytic_decade <- CEO_Analytic_decade + annotate("text", x = 2011.5 , y = 36,
+         label = "paste(italic(d[2010]), \" = -0.0817\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 36,label = "paste(italic(d[2015]), \" = -0.050\")", parse = TRUE,size = 5)
+
+```
+
+### Cognitive Processing 
+
+```{r fig.height=6, fig.width=6}
+cogproc_decade <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date, y = cogproc_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date,ymin=cogproc_mean-cogproc_std.error, ymax=cogproc_mean+cogproc_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy, aes(x = Quarter, y = cogproc_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy, aes(x = Quarter,ymin=cogproc_mean-cogproc_std.error, ymax=cogproc_mean+cogproc_std.error, fill = "Reddit"), alpha=0.2) +
+  ggtitle("Cognitive Processing") + 
+  labs(x = "Fiscal Quarter", y = '% of Total Words') +
+  plot_aes + #here's our plot aes object
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+
+cogproc <- cogproc_decade + annotate("text", x = 2011.5 , y = 11.2,
+                         label = "paste(italic(d[2010]), \" = -0.082\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 11.2,label = "paste(italic(d[2015]), \" = -0.043\")", parse = TRUE, size = 5)
+
+cogproc <- cogproc +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+
+cogproc
+```
+
+```{r fig.height=6, fig.width=6}
+ceo_cogproc_decade <- ggplot(data=df2, aes(x=Date, y=cogproc_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  #geom_point() +
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") +
+  ggtitle("Cognitive Processing") + 
+  plot_aes + #here's our plot aes object
+  geom_ribbon(aes(ymin=cogproc_mean-cogproc_std.error, ymax=cogproc_mean+cogproc_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  labs(x = "Month", y = '% of total words') +
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+
+ceo_cogproc_decade <- ceo_cogproc_decade + annotate("text", x = 2011.5 , y = 11.2,
+                         label = "paste(italic(d[2010]), \" = -0.082\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 11.2,label = "paste(italic(d[2015]), \" = -0.043\")", parse = TRUE, size = 5)
+
+```
+
+### I-usage 
+
+```{r fig.height=6, fig.width=6}
+i_decade <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date, y = i_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date,ymin=i_mean-i_std.error, ymax=i_mean+i_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy, aes(x = Quarter, y = i_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy, aes(x = Quarter,ymin=i_mean-i_std.error, ymax=i_mean+i_std.error, fill = "Reddit"), alpha=0.2) +
+  ggtitle("I-usage") + 
+  labs(x = "Fiscal Quarter", y = '% of Total Words') +
+  plot_aes + #here's our plot aes object
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+i <- i_decade  + annotate("text", x = 2011.5 , y = 1.6,
+                     label = "paste(italic(d[2010]), \" = -0.012\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 1.6,label = "paste(italic(d[2015]), \" = 0.024\")", parse = TRUE,size = 5)
+
+i <- i +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+
+i
+```
+
+```{r fig.height=6, fig.width=6}
+ceo_i_decade <- ggplot(data=df2, aes(x=Date, y=i_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  #geom_point() +
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") +
+  ggtitle("Self-focus") + 
+  plot_aes + #here's our plot aes object
+  geom_ribbon(aes(ymin=i_mean-i_std.error, ymax=i_mean+i_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  labs(x = "Month", y = '% of total words') +
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+ceo_i_decade <- ceo_i_decade  + annotate("text", x = 2011.5 , y = 1.6,
+                     label = "paste(italic(d[2010]), \" = -0.012\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 1.6,label = "paste(italic(d[2015]), \" = 0.024\")", parse = TRUE,size = 5)
+
+```
+
+### We-usage 
+
+```{r fig.height=6, fig.width=6}
+we_decade <- 
+  ggplot() +
+  geom_line(data = df2, aes(x = Date, y = we_mean, color = "CEO"), #set our colors 
+              linetype = 'solid') +
+  geom_ribbon(data = df2, aes(x = Date,ymin=we_mean-we_std.error, ymax=we_mean+we_std.error, fill = "CEO"), alpha=0.2) +
+geom_line(data = reddit_tidy, aes(x = Quarter, y = we_mean, color = "Reddit"), #set our colors 
+              linetype = 'solid') +
+geom_ribbon(data = reddit_tidy, aes(x = Quarter,ymin=we_mean-we_std.error, ymax=we_mean+we_std.error, fill = "Reddit"), alpha=0.2) +
+  ggtitle("We-usage") + 
+  labs(x = "Fiscal Quarter", y = '% of Total Words') +
+  plot_aes + #here's our plot aes object
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+
+we <- we_decade + annotate("text", x = 2011.5 , y = 5.25,
+                     label = "paste(italic(d[2010]), \" = 0.156\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 5.25,label = "paste(italic(d[2015]), \" = 0.112\")", parse = TRUE,size = 5)
+
+we <- we +
+  scale_color_manual(values = c(CEO = "dodgerblue3", Reddit = "red")) +
+  scale_fill_manual(values = c(CEO = "dodgerblue3", Reddit = "red"))
+
+we
+```
+
+
+```{r fig.height=6, fig.width=6}
+ceo_we_decade <- ggplot(data=df2, aes(x=Date, y=we_mean, group=1)) +
+  geom_line(colour = "dodgerblue3") +
+  #geom_point() +
+  #scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") +
+  ggtitle("Collective-focus") + 
+  plot_aes + #here's our plot aes object
+  geom_ribbon(aes(ymin=we_mean-we_std.error, ymax=we_mean+we_std.error),fill = 'dodgerblue3', alpha=0.2) +
+  labs(x = "Month", y = '% of total words') +
+  scale_x_yearqtr(name="Fiscal Quarter",format = "%YQ%q", n= 5) + #change the N to change the number of tick marks
+  geom_vline(xintercept = as.numeric(as.yearqtr("2020 Q1")), linetype=1, show.legend = T) +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+ceo_we_decade <- ceo_we_decade + annotate("text", x = 2011.5 , y = 5.25,
+                     label = "paste(italic(d[2010]), \" = 0.156\")", parse = TRUE,size = 5) + 
+  annotate("text", x = 2015.5 , y = 5.25,label = "paste(italic(d[2015]), \" = 0.112\")", parse = TRUE,size = 5)
+
+```
+
+### Tie together
+
+```{r,fig.height=14, fig.width=14}
+graphs <- ggpubr::ggarrange(analytic,cogproc,i,we,ncol=2, nrow=2, common.legend = TRUE, legend = "bottom")
+annotate_figure(graphs,
+                top = text_grob("CEOs' Language Change over the Decade compared to reddit data", color = "black", face = "bold", size = 20))
+```
+
+
+### CEO only graphs
+
+```{r,fig.height=14, fig.width=14}
+graphs <- ggpubr::ggarrange(CEO_Analytic_decade,ceo_cogproc_decade,ceo_i_decade,ceo_we_decade,ncol=2, nrow=2, common.legend = TRUE, legend = "bottom")
+annotate_figure(graphs,
+                top = text_grob("CEOs' Language Change over the Decade", color = "black", face = "bold", size = 20))
+```
+
+# Package Citations 
+```{r}
+report::cite_packages()
+```

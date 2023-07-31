@@ -1,0 +1,110 @@
+---
+title: "CEO--Reddit Correlations"
+author: "Steven Mesquiti"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    highlight: tango
+    theme: united
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+---
+```{r setup, include=FALSE, message=FALSE}
+# set chunk options for the document
+# include=FALSE means that this chunk will not show up in the report
+
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = F #let's us save old models. only wanna do this when models are finalized
+                      , dpi = 150, fig.path = "CEO_correlation_figs/corr_") 
+# echo = TRUE means that the source code will be displayed
+# message = FALSE suppresses messages
+# warning = FALSE suppresses warnings
+# cache = FALSE recompiles from scratch each time you knit 
+# dpi = 150 sets the figure resolution
+# fig.path specifies a directory where figures will be output
+
+options(scipen = 999) #turn off scientific notation
+options(repos = c(CRAN = "https://cran.rstudio.com/"))
+set.seed(65) #set seed for random number generation
+```
+
+# Prep data {.tabset}
+
+## Load necessary packages and set Working Directory
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse,zoo,lubridate,plotrix,ggpubr, caret, broom, kableExtra, reactable, effsize, install = T)
+setwd("/Users/stevenmesquiti/Desktop/CEO Project/Manuscript analyses") 
+```
+
+
+## Define aesthetics
+```{r}
+colors =  c("CEO" = "dodgerblue3","Reddit" = "red")
+palette_map = c("#3B9AB2", "#EBCC2A", "#F21A00")
+palette_condition = c("#ee9b00", "#bb3e03", "#005f73")
+
+plot_aes = theme_classic() +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 10),)+
+  theme(text = element_text(size = 16, family = "Futura Medium")) + 
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16)) + 
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))+
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 20)) +
+  theme(axis.text=element_text(size = 14),
+        axis.title=element_text(size = 20,face="bold"))
+```
+
+
+## Load in and split the data pre and post covid
+
+```{r}
+data <- read_csv("CEO-Reddit-2016-2021-corr-data.csv")
+```
+
+# Correlating both datasets {.tabset}
+
+## Analytic Thinking {.tabset}
+
+```{r Analytic_all, fig.height=6, fig.width=6}
+ggscatter(data, x = "CEO_Analytic", y = "reddit_Analytic", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "CEO Analytic Thinking", ylab = "Reddit Analytic Thinking") + plot_aes
+```
+
+## Cognitive Processing {.tabset}
+
+```{r cogproc-all,fig.height=6, fig.width=6}
+
+ggscatter(data, x = "CEO_cogproc", y = "reddit_cogproc", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "CEO Cogproc", ylab = "Reddit Cogproc") + plot_aes
+```
+
+## Self-focus {.tabset}
+
+```{r i-all, fig.height=6, fig.width=6}
+
+ggscatter(data, x = "CEO_i", y = "reddit_i", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "CEO I-usage", ylab = "Reddit I-usage") + plot_aes
+```
+
+## Collective Focus {.tabset}
+
+```{r we-all, fig.height=6, fig.width=6}
+ggscatter(data, x = "CEO_we", y = "reddit_we", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "CEO We-usage", ylab = "Reddit We-usage") + plot_aes
+```
